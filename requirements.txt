@@ -1,3 +1,15 @@
+# Core A2A System Dependencies
 google-adk
 praw
-python-dotenv 
+python-dotenv
+
+# Web UI Dependencies
+streamlit
+fastapi
+uvicorn
+
+# Audio Integration Dependencies
+requests  # For ElevenLabs API calls
+
+# Optional: Enhanced functionality
+litellm  # Uncomment for advanced LLM features
