@@ -1,15 +1,42 @@
 import random
 import os
+import logging
+from typing import Dict, List, Optional
+from pathlib import Path
 
 from google.adk.agents import Agent
-
 from dotenv import load_dotenv
-load_dotenv()
-
 import praw
 from praw.exceptions import PRAWException
 
-def get_reddit_gamedev_news(subreddit: str, limit: int = 5) -> dict[str, list[str]]:
+# Load environment variables
+load_dotenv()
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+class RedditScoutConfig:
+    """Configuration for Reddit Scout agent."""
+    DEFAULT_SUBREDDITS = {
+        "gamedev": "General game development news",
+        "unity3d": "Unity-specific news",
+        "unrealengine": "Unreal Engine news"
+    }
+    DEFAULT_LIMIT = 5
+    MAX_RETRIES = 3
+    RETRY_DELAY = 1  # seconds
+
+def validate_reddit_credentials() -> bool:
+    """Validate that all required Reddit API credentials are present."""
+    required_vars = ["REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USER_AGENT"]
+    missing = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing:
+        logger.error(f"Missing Reddit API credentials: {', '.join(missing)}")
+        return False
+    return True
+
+def get_reddit_gamedev_news(subreddit: str, limit: int = RedditScoutConfig.DEFAULT_LIMIT) -> Dict[str, List[str]]:
     """
     Fetches top post titles from a specified subreddit using the Reddit API.
 
@@ -22,39 +49,49 @@ def get_reddit_gamedev_news(subreddit: str, limit: int = 5) -> dict[str, list[st
         post titles as value. Returns an error message if credentials are
         missing, the subreddit is invalid, or an API error occurs.
     """
-    print(f"--- Tool called: Fetching from r/{subreddit} via Reddit API ---")
-    client_id = os.getenv("REDDIT_CLIENT_ID")
-    client_secret = os.getenv("REDDIT_CLIENT_SECRET")
-    user_agent = os.getenv("REDDIT_USER_AGENT")
-
-    if not all([client_id, client_secret, user_agent]):
-        print("--- Tool error: Reddit API credentials missing in .env file. ---")
+    logger.info(f"Fetching from r/{subreddit} via Reddit API")
+    
+    if not validate_reddit_credentials():
         return {subreddit: ["Error: Reddit API credentials not configured."]}
 
     try:
         reddit = praw.Reddit(
-            client_id=client_id,
-            client_secret=client_secret,
-            user_agent=user_agent,
+            client_id=os.getenv("REDDIT_CLIENT_ID"),
+            client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
+            user_agent=os.getenv("REDDIT_USER_AGENT"),
+            timeout=10  # Add timeout to prevent hanging
         )
+        
         # Check if subreddit exists and is accessible
         reddit.subreddits.search_by_name(subreddit, exact=True)
         sub = reddit.subreddit(subreddit)
-        top_posts = list(sub.hot(limit=limit)) # Fetch hot posts
+        
+        # Fetch hot posts with error handling
+        try:
+            top_posts = list(sub.hot(limit=limit))
+        except Exception as e:
+            logger.error(f"Error fetching posts from r/{subreddit}: {e}")
+            return {subreddit: [f"Error fetching posts from r/{subreddit}. Please try again later."]}
+        
         titles = [post.title for post in top_posts]
         if not titles:
-             return {subreddit: [f"No recent hot posts found in r/{subreddit}."]}
+            logger.warning(f"No recent hot posts found in r/{subreddit}")
+            return {subreddit: [f"No recent hot posts found in r/{subreddit}."]}
+            
+        logger.info(f"Successfully fetched {len(titles)} posts from r/{subreddit}")
         return {subreddit: titles}
+        
     except PRAWException as e:
-        print(f"--- Tool error: Reddit API error for r/{subreddit}: {e} ---")
+        logger.error(f"Reddit API error for r/{subreddit}: {e}")
         return {subreddit: [f"Error accessing r/{subreddit}. It might be private, banned, or non-existent. Details: {e}"]}
     except Exception as e:
-        print(f"--- Tool error: Unexpected error for r/{subreddit}: {e} ---")
+        logger.error(f"Unexpected error for r/{subreddit}: {e}")
         return {subreddit: [f"An unexpected error occurred while fetching from r/{subreddit}."]}
 
-def get_mock_reddit_gamedev_news(subreddit: str) -> dict[str, list[str]]:
+def get_mock_reddit_gamedev_news(subreddit: str) -> Dict[str, List[str]]:
     """
     Simulates fetching top post titles from a game development subreddit.
+    Used for testing and development when Reddit API is unavailable.
 
     Args:
         subreddit: The name of the subreddit to fetch news from (e.g., 'gamedev').
@@ -63,8 +100,9 @@ def get_mock_reddit_gamedev_news(subreddit: str) -> dict[str, list[str]]:
         A dictionary with the subreddit name as key and a list of
         mock post titles as value. Returns a message if the subreddit is unknown.
     """
-    print(f"--- Tool called: Simulating fetch from r/{subreddit} ---")
-    mock_titles: dict[str, list[str]] = {
+    logger.info(f"Simulating fetch from r/{subreddit}")
+    
+    mock_titles: Dict[str, List[str]] = {
         "gamedev": [
             "Show HN: My new procedural level generator using Rust",
             "Unity releases update 2023.3 LTS - Key features discussion",
@@ -93,17 +131,16 @@ def get_mock_reddit_gamedev_news(subreddit: str) -> dict[str, list[str]]:
             "Networking in Unity: Netcode for GameObjects vs Photon PUN",
         ]
     }
-    # Normalize subreddit name for lookup
+    
     normalized_subreddit = subreddit.lower()
-
     if normalized_subreddit in mock_titles:
         available_titles = mock_titles[normalized_subreddit]
-        # Return a random subset to make it seem dynamic
-        num_to_return = min(len(available_titles), 3) # Return up to 3 random titles
+        num_to_return = min(len(available_titles), 3)
         selected_titles = random.sample(available_titles, num_to_return)
+        logger.info(f"Returning {num_to_return} mock titles for r/{subreddit}")
         return {subreddit: selected_titles}
     else:
-        print(f"--- Tool warning: Unknown subreddit '{subreddit}' requested. ---")
+        logger.warning(f"Unknown subreddit '{subreddit}' requested")
         return {subreddit: [f"Sorry, I don't have mock data for r/{subreddit}."]}
 
 # Define the Agent
