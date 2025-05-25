@@ -1,5 +1,5 @@
 from google.adk.agents import Agent
-from agents.reddit_scout.agent import agent as reddit_scout_agent
+from .reddit_scout.agent import agent as reddit_scout_agent
 
 # Define the root agent that will coordinate other agents
 root_agent = Agent(
@@ -21,4 +21,4 @@ root_agent = Agent(
     ),
     tools=[],  # Root agent doesn't need direct tools
     sub_agents=[reddit_scout_agent]  # Use sub_agents instead of agents
-) 
+)
